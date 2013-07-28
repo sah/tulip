@@ -164,17 +164,17 @@ class AbstractEventLoop:
     def getnameinfo(self, sockaddr, flags=0):
         raise NotImplementedError
 
-    def create_connection(self, protocol_factory, host=None, port=None, *,
+    def create_connection(self, host=None, port=None, *,
                           ssl=None, family=0, proto=0, flags=0, sock=None,
                           local_addr=None):
         raise NotImplementedError
 
-    def start_serving(self, protocol_factory, host=None, port=None, *,
+    def start_serving(self, connection_handler, host=None, port=None, *,
                       family=socket.AF_UNSPEC, flags=socket.AI_PASSIVE,
                       sock=None, backlog=100, ssl=None, reuse_address=None):
         """Creates a TCP server bound to host and port and return
         a list of socket objects which will later be handled by
-        protocol_factory.
+        connection_handler.
 
         If host is an empty string or None all interfaces are assumed
         and a list of multiple sockets will be returned (most likely
@@ -206,15 +206,14 @@ class AbstractEventLoop:
         """Stop listening for incoming connections. Close socket."""
         raise NotImplementedError
 
-    def create_datagram_endpoint(self, protocol_factory,
+    def create_datagram_endpoint(self, connection_handler,
                                  local_addr=None, remote_addr=None, *,
                                  family=0, proto=0, flags=0):
         raise NotImplementedError
 
-    def connect_read_pipe(self, protocol_factory, pipe):
+    def connect_read_pipe(self, pipe):
         """Register read pipe in eventloop.
 
-        protocol_factory should instantiate object with Protocol interface.
         pipe is file-like object already switched to nonblocking.
         Return pair (transport, protocol), where transport support
         ReadTransport ABC"""
@@ -224,10 +223,9 @@ class AbstractEventLoop:
         # close fd in pipe transport then close f and vise versa.
         raise NotImplementedError
 
-    def connect_write_pipe(self, protocol_factory, pipe):
+    def connect_write_pipe(self, pipe):
         """Register write pipe in eventloop.
 
-        protocol_factory should instantiate object with BaseProtocol interface.
         Pipe is file-like object already switched to nonblocking.
         Return pair (transport, protocol), where transport support
         WriteTransport ABC"""
@@ -237,7 +235,7 @@ class AbstractEventLoop:
         # close fd in pipe transport then close f and vise versa.
         raise NotImplementedError
 
-    #def spawn_subprocess(self, protocol_factory, pipe):
+    #def spawn_subprocess(self, pipe):
     #    raise NotImplementedError
 
     # Ready-based callback registration methods.

@@ -19,7 +19,6 @@ from . import selectors
 from . import transports
 from .log import tulip_log
 
-
 # Errno values indicating the connection was disconnected.
 # Comment out _DISCONNECTED as never used
 # TODO: make sure that errors has processed properly
@@ -48,18 +47,18 @@ class BaseSelectorEventLoop(base_events.BaseEventLoop):
         self._selector = selector
         self._make_self_pipe()
 
-    def _make_socket_transport(self, sock, protocol, waiter=None, *,
+    def _make_socket_transport(self, sock, waiter=None, *,
                                extra=None):
-        return _SelectorSocketTransport(self, sock, protocol, waiter, extra)
+        return _SelectorSocketTransport(self, sock, waiter, extra)
 
-    def _make_ssl_transport(self, rawsock, protocol, sslcontext, waiter, *,
+    def _make_ssl_transport(self, rawsock, sslcontext, waiter, *,
                             server_side=False, extra=None):
         return _SelectorSslTransport(
-            self, rawsock, protocol, sslcontext, waiter, server_side, extra)
+            self, rawsock, sslcontext, waiter, server_side, extra)
 
-    def _make_datagram_transport(self, sock, protocol,
+    def _make_datagram_transport(self, sock,
                                  address=None, extra=None):
-        return _SelectorDatagramTransport(self, sock, protocol, address, extra)
+        return _SelectorDatagramTransport(self, sock, address, extra)
 
     def close(self):
         if self._selector is not None:
@@ -98,11 +97,11 @@ class BaseSelectorEventLoop(base_events.BaseEventLoop):
         except (BlockingIOError, InterruptedError):
             pass
 
-    def _start_serving(self, protocol_factory, sock, ssl=None):
+    def _start_serving(self, connection_handler, sock, ssl=None):
         self.add_reader(sock.fileno(), self._accept_connection,
-                        protocol_factory, sock, ssl)
+                        connection_handler, sock, ssl)
 
-    def _accept_connection(self, protocol_factory, sock, ssl=None):
+    def _accept_connection(self, connection_handler, sock, ssl=None):
         try:
             conn, addr = sock.accept()
             conn.setblocking(False)
@@ -117,13 +116,13 @@ class BaseSelectorEventLoop(base_events.BaseEventLoop):
             tulip_log.exception('Accept failed')
         else:
             if ssl:
-                self._make_ssl_transport(
-                    conn, protocol_factory(), ssl, None,
+                transport = self._make_ssl_transport(
+                    conn, ssl, None,
                     server_side=True, extra={'addr': addr})
             else:
-                self._make_socket_transport(
-                    conn, protocol_factory(), extra={'addr': addr})
-        # It's now up to the protocol to handle the connection.
+                transport = self._make_socket_transport(
+                    conn, extra={'addr': addr})
+            connection_handler(transport)
 
     def add_reader(self, fd, callback, *args):
         """Add a reader callback."""
@@ -327,17 +326,20 @@ class BaseSelectorEventLoop(base_events.BaseEventLoop):
 
 class _SelectorTransport(transports.Transport):
 
-    def __init__(self, loop, sock, protocol, extra):
+    def __init__(self, loop, sock, extra):
         super().__init__(extra)
         self._extra['socket'] = sock
         self._loop = loop
         self._sock = sock
         self._sock_fd = sock.fileno()
-        self._protocol = protocol
+        self._protocol = None
         self._buffer = []
         self._conn_lost = 0
         self._writing = True
         self._closing = False  # Set when close() called.
+
+    def register_protocol(self, protocol):
+        self._protocol = protocol
 
     def abort(self):
         self._force_close(None)
@@ -376,13 +378,15 @@ class _SelectorTransport(transports.Transport):
 
 class _SelectorSocketTransport(_SelectorTransport):
 
-    def __init__(self, loop, sock, protocol, waiter=None, extra=None):
-        super().__init__(loop, sock, protocol, extra)
+    def __init__(self, loop, sock, waiter=None, extra=None):
+        super().__init__(loop, sock, extra)
 
-        self._loop.add_reader(self._sock_fd, self._read_ready)
-        self._loop.call_soon(self._protocol.connection_made, self)
         if waiter is not None:
             self._loop.call_soon(waiter.set_result, None)
+
+    def register_protocol(self, protocol):
+        super().register_protocol(protocol)
+        self._loop.add_reader(self._sock_fd, self._read_ready)
 
     def _read_ready(self):
         try:
@@ -476,7 +480,7 @@ class _SelectorSocketTransport(_SelectorTransport):
 
 class _SelectorSslTransport(_SelectorTransport):
 
-    def __init__(self, loop, rawsock, protocol, sslcontext, waiter=None,
+    def __init__(self, loop, rawsock, sslcontext, waiter=None,
                  server_side=False, extra=None):
         if server_side:
             assert isinstance(
@@ -487,13 +491,19 @@ class _SelectorSslTransport(_SelectorTransport):
         sslsock = sslcontext.wrap_socket(rawsock, server_side=server_side,
                                          do_handshake_on_connect=False)
 
-        super().__init__(loop, sslsock, protocol, extra)
+        super().__init__(loop, sslsock, extra)
 
         self._waiter = waiter
         self._rawsock = rawsock
         self._sslcontext = sslcontext
+        self._handshake_done = False
 
         self._on_handshake()
+
+    def register_protocol(self, protocol):
+        super().register_protocol(protocol)
+        if self._handshake_done:
+            self._loop.add_reader(self._sock_fd, self._on_ready)
 
     def _on_handshake(self):
         try:
@@ -516,9 +526,11 @@ class _SelectorSslTransport(_SelectorTransport):
             raise
         self._loop.remove_reader(self._sock_fd)
         self._loop.remove_writer(self._sock_fd)
-        self._loop.add_reader(self._sock_fd, self._on_ready)
         self._loop.add_writer(self._sock_fd, self._on_ready)
-        self._loop.call_soon(self._protocol.connection_made, self)
+        self._handshake_done = True
+
+        if self._protocol:
+            self._loop.add_reader(self._sock_fd, self._on_ready)
         if self._waiter is not None:
             self._loop.call_soon(self._waiter.set_result, None)
 
@@ -529,7 +541,7 @@ class _SelectorSslTransport(_SelectorTransport):
         # should do next.
 
         # First try reading.
-        if not self._closing:
+        if self._protocol and not self._closing:
             try:
                 data = self._sock.recv(8192)
             except (BlockingIOError, InterruptedError,
@@ -596,13 +608,12 @@ class _SelectorDatagramTransport(_SelectorTransport):
 
     max_size = 256 * 1024  # max bytes we read in one eventloop iteration
 
-    def __init__(self, loop, sock, protocol, address=None, extra=None):
-        super().__init__(loop, sock, protocol, extra)
+    def __init__(self, loop, sock, address=None, extra=None):
+        super().__init__(loop, sock, extra)
 
         self._address = address
         self._buffer = collections.deque()
         self._loop.add_reader(self._sock_fd, self._read_ready)
-        self._loop.call_soon(self._protocol.connection_made, self)
 
     def _read_ready(self):
         try:

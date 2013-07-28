@@ -15,6 +15,10 @@ class BaseTransport:
         """Get optional transport information."""
         return self._extra.get(name, default)
 
+    def register_protocol(self, protocol):
+        """Registers a Protocol to receive events regarding this transport."""
+        raise NotImplementedError
+
     def close(self):
         """Closes the transport.
 
@@ -113,13 +117,12 @@ class Transport(ReadTransport, WriteTransport):
     practices.
 
     The user never instantiates a transport directly; they call a
-    utility function, passing it a protocol factory and other
-    information necessary to create the transport and protocol.  (E.g.
-    EventLoop.create_connection() or EventLoop.start_serving().)
+    utility function, passing it information necessary to create the
+    transport and protocol.  (E.g.  EventLoop.create_connection() or
+    EventLoop.start_serving().)
 
-    The utility function will asynchronously create a transport and a
-    protocol and hook them up by calling the protocol's
-    connection_made() method, passing it the transport.
+    The utility function will asynchronously create a transport and
+    pass it back to user code, where callbacks may be registered.
 
     The implementation here raises NotImplemented for every method
     except writelines(), which calls write() in a loop.

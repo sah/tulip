@@ -130,13 +130,13 @@ class SelectorEventLoop(selector_events.BaseSelectorEventLoop):
             raise ValueError(
                 'sig {} out of range(1, {})'.format(sig, signal.NSIG))
 
-    def _make_read_pipe_transport(self, pipe, protocol, waiter=None,
+    def _make_read_pipe_transport(self, pipe, waiter=None,
                                   extra=None):
-        return _UnixReadPipeTransport(self, pipe, protocol, waiter, extra)
+        return _UnixReadPipeTransport(self, pipe, waiter, extra)
 
-    def _make_write_pipe_transport(self, pipe, protocol, waiter=None,
+    def _make_write_pipe_transport(self, pipe, waiter=None,
                                    extra=None):
-        return _UnixWritePipeTransport(self, pipe, protocol, waiter, extra)
+        return _UnixWritePipeTransport(self, pipe, waiter, extra)
 
 
 def _set_nonblocking(fd):
@@ -149,19 +149,21 @@ class _UnixReadPipeTransport(transports.ReadTransport):
 
     max_size = 256 * 1024  # max bytes we read in one eventloop iteration
 
-    def __init__(self, event_loop, pipe, protocol, waiter=None, extra=None):
+    def __init__(self, event_loop, pipe, waiter=None, extra=None):
         super().__init__(extra)
         self._extra['pipe'] = pipe
         self._event_loop = event_loop
         self._pipe = pipe
         self._fileno = pipe.fileno()
         _set_nonblocking(self._fileno)
-        self._protocol = protocol
+        self._protocol = None
         self._closing = False
-        self._event_loop.add_reader(self._fileno, self._read_ready)
-        self._event_loop.call_soon(self._protocol.connection_made, self)
         if waiter is not None:
             self._event_loop.call_soon(waiter.set_result, None)
+
+    def register_protocol(self, protocol):
+        self._protocol = protocol
+        self._event_loop.add_reader(self._fileno, self._read_ready)
 
     def _read_ready(self):
         try:
@@ -206,20 +208,22 @@ class _UnixReadPipeTransport(transports.ReadTransport):
 
 class _UnixWritePipeTransport(transports.WriteTransport):
 
-    def __init__(self, event_loop, pipe, protocol, waiter=None, extra=None):
+    def __init__(self, event_loop, pipe, waiter=None, extra=None):
         super().__init__(extra)
         self._extra['pipe'] = pipe
         self._event_loop = event_loop
         self._pipe = pipe
         self._fileno = pipe.fileno()
         _set_nonblocking(self._fileno)
-        self._protocol = protocol
+        self._protocol = None
         self._buffer = []
         self._conn_lost = 0
         self._closing = False  # Set when close() or write_eof() called.
-        self._event_loop.call_soon(self._protocol.connection_made, self)
         if waiter is not None:
             self._event_loop.call_soon(waiter.set_result, None)
+
+    def register_protocol(self, protocol):
+        self._protocol = protocol
 
     def write(self, data):
         assert isinstance(data, bytes), repr(data)

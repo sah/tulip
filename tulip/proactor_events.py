@@ -16,21 +16,23 @@ from .log import tulip_log
 class _ProactorBasePipeTransport(transports.BaseTransport):
     """Base class for pipe and socket transports."""
 
-    def __init__(self, loop, sock, protocol, waiter=None, extra=None):
+    def __init__(self, loop, sock, waiter=None, extra=None):
         super().__init__(extra)
         self._set_extra(sock)
         self._loop = loop
         self._sock = sock
-        self._protocol = protocol
+        self._protocol = None
         self._buffer = []
         self._read_fut = None
         self._write_fut = None
         self._writing_disabled = False
         self._conn_lost = 0
         self._closing = False  # Set when close() called.
-        self._loop.call_soon(self._protocol.connection_made, self)
         if waiter is not None:
             self._loop.call_soon(waiter.set_result, None)
+
+    def register_protocol(self, protocol):
+        self._protocol = protocol
 
     def _set_extra(self, sock):
         self._extra['pipe'] = sock
@@ -79,8 +81,8 @@ class _ProactorReadPipeTransport(_ProactorBasePipeTransport,
                                  transports.ReadTransport):
     """Transport for read pipes."""
 
-    def __init__(self, loop, sock, protocol, waiter=None, extra=None):
-        super().__init__(loop, sock, protocol, waiter, extra)
+    def __init__(self, loop, sock, waiter=None, extra=None):
+        super().__init__(loop, sock, waiter, extra)
         self._loop.call_soon(self._loop_reading)
 
     def _loop_reading(self, fut=None):
@@ -197,16 +199,16 @@ class BaseProactorEventLoop(base_events.BaseEventLoop):
         self._selector = proactor   # convenient alias
         self._make_self_pipe()
 
-    def _make_socket_transport(self, sock, protocol, waiter=None, extra=None):
-        return _ProactorSocketTransport(self, sock, protocol, waiter, extra)
+    def _make_socket_transport(self, sock, waiter=None, extra=None):
+        return _ProactorSocketTransport(self, sock, waiter, extra)
 
-    def _make_read_pipe_transport(self, sock, protocol, waiter=None,
+    def _make_read_pipe_transport(self, sock, waiter=None,
                                   extra=None):
-        return _ProactorReadPipeTransport(self, sock, protocol, waiter, extra)
+        return _ProactorReadPipeTransport(self, sock, waiter, extra)
 
-    def _make_write_pipe_transport(self, sock, protocol, waiter=None,
+    def _make_write_pipe_transport(self, sock, waiter=None,
                                    extra=None):
-        return _ProactorWritePipeTransport(self, sock, protocol, waiter, extra)
+        return _ProactorWritePipeTransport(self, sock, waiter, extra)
 
     def close(self):
         if self._proactor is not None:
@@ -259,16 +261,16 @@ class BaseProactorEventLoop(base_events.BaseEventLoop):
     def _write_to_self(self):
         self._csock.send(b'x')
 
-    def _start_serving(self, protocol_factory, sock, ssl=None):
+    def _start_serving(self, connection_handler, sock, ssl=None):
         assert not ssl, 'IocpEventLoop imcompatible with SSL.'
 
         def loop(f=None):
             try:
                 if f:
                     conn, addr = f.result()
-                    protocol = protocol_factory()
-                    self._make_socket_transport(
-                        conn, protocol, extra={'addr': addr})
+                    transport = self._make_socket_transport(
+                        conn, extra={'addr': addr})
+                    connection_handler(transport)
                 f = self._proactor.accept(sock)
             except OSError:
                 sock.close()

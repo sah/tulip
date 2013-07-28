@@ -18,8 +18,8 @@ class UnixSubprocessTransport(transports.Transport):
     and something else that handles pipe setup, fork, and exec.
     """
 
-    def __init__(self, protocol, args):
-        self._protocol = protocol  # Not a factory! :-)
+    def __init__(self, args):
+        self._protocol = None
         self._args = args  # args[0] must be full path of binary.
         self._event_loop = events.get_event_loop()
         self._buffer = []
@@ -48,7 +48,9 @@ class UnixSubprocessTransport(transports.Transport):
         os.close(wstdout)
         _setnonblocking(self._wstdin)
         _setnonblocking(self._rstdout)
-        self._event_loop.call_soon(self._protocol.connection_made, self)
+
+    def register_protocol(self, protocol):
+        self._protocol = protocol
         self._event_loop.add_reader(self._rstdout, self._stdout_callback)
 
     def write(self, data):

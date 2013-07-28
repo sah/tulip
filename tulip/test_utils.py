@@ -75,9 +75,8 @@ def run_test_server(loop, *, host='127.0.0.1', port=0,
 
     class TestHttpServer(tulip.http.ServerHttpProtocol):
 
-        def connection_made(self, transport):
-            transports.append(transport)
-            super().connection_made(transport)
+        def __init__(self, transport, **kwargs):
+            super().__init__(transport, **kwargs)
 
         def handle_request(self, message, payload):
             if properties.get('close', False):
@@ -124,7 +123,7 @@ def run_test_server(loop, *, host='127.0.0.1', port=0,
 
         socks = thread_loop.run_until_complete(
             thread_loop.start_serving(
-                lambda: TestHttpServer(keep_alive=0.5),
+                lambda tr: TestHttpServer(tr, keep_alive=0.5),
                 host, port, ssl=sslcontext))
 
         waiter = tulip.Future()

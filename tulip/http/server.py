@@ -45,7 +45,7 @@ class ServerHttpProtocol(tulip.Protocol):
     _keep_alive = False  # keep transport open
     _keep_alive_handle = None  # keep alive timer handle
 
-    def __init__(self, *, log=logging, debug=False,
+    def __init__(self, transport, *, log=logging, debug=False,
                  keep_alive=None, loop=None, **kwargs):
         self.__dict__.update(kwargs)
         self.log = log
@@ -56,9 +56,8 @@ class ServerHttpProtocol(tulip.Protocol):
         if keep_alive and loop is None:
             loop = tulip.get_event_loop()
         self._loop = loop
-
-    def connection_made(self, transport):
         self.transport = transport
+        self.transport.register_protocol(self)
         self.stream = tulip.StreamBuffer()
         self._request_handler = self.start()
 

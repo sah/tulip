@@ -123,8 +123,9 @@ def request(method, url, *,
 
 @tulip.coroutine
 def start(req, loop):
-    transport, p = yield from loop.create_connection(
-        tulip.StreamProtocol, req.host, req.port, ssl=req.ssl)
+    transport = yield from loop.create_connection(
+        req.host, req.port, ssl=req.ssl)
+    p = tulip.StreamProtocol(transport)
 
     try:
         resp = req.send(transport)

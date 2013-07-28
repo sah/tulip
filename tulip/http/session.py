@@ -46,8 +46,9 @@ class Session:
 
         if new_conn or transport is None:
             new = True
-            transport, proto = yield from loop.create_connection(
-                tulip.StreamProtocol, req.host, req.port, ssl=req.ssl)
+            transport = yield from loop.create_connection(
+                req.host, req.port, ssl=req.ssl)
+            proto = tulip.StreamProtocol(transport)
         else:
             new = False
 

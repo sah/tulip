@@ -53,27 +53,27 @@ class BaseEventLoop(events.AbstractEventLoop):
         self._internal_fds = 0
         self._running = False
 
-    def _make_socket_transport(self, sock, protocol, waiter=None, *,
+    def _make_socket_transport(self, sock, waiter=None, *,
                                extra=None):
         """Create socket transport."""
         raise NotImplementedError
 
-    def _make_ssl_transport(self, rawsock, protocol, sslcontext, waiter, *,
+    def _make_ssl_transport(self, rawsock, sslcontext, waiter, *,
                             server_side=False, extra=None):
         """Create SSL transport."""
         raise NotImplementedError
 
-    def _make_datagram_transport(self, sock, protocol,
+    def _make_datagram_transport(self, sock,
                                  address=None, extra=None):
         """Create datagram transport."""
         raise NotImplementedError
 
-    def _make_read_pipe_transport(self, pipe, protocol, waiter=None,
+    def _make_read_pipe_transport(self, pipe, waiter=None,
                                   extra=None):
         """Create read pipe transport."""
         raise NotImplementedError
 
-    def _make_write_pipe_transport(self, pipe, protocol, waiter=None,
+    def _make_write_pipe_transport(self, pipe, waiter=None,
                                    extra=None):
         """Create write pipe transport."""
         raise NotImplementedError
@@ -232,7 +232,7 @@ class BaseEventLoop(events.AbstractEventLoop):
         return self.run_in_executor(None, socket.getnameinfo, sockaddr, flags)
 
     @tasks.coroutine
-    def create_connection(self, protocol_factory, host=None, port=None, *,
+    def create_connection(self, host=None, port=None, *,
                           ssl=None, family=0, proto=0, flags=0, sock=None,
                           local_addr=None):
         """XXX"""
@@ -310,20 +310,19 @@ class BaseEventLoop(events.AbstractEventLoop):
 
         sock.setblocking(False)
 
-        protocol = protocol_factory()
         waiter = futures.Future()
         if ssl:
             sslcontext = None if isinstance(ssl, bool) else ssl
             transport = self._make_ssl_transport(
-                sock, protocol, sslcontext, waiter, server_side=False)
+                sock, sslcontext, waiter, server_side=False)
         else:
-            transport = self._make_socket_transport(sock, protocol, waiter)
+            transport = self._make_socket_transport(sock, waiter)
 
         yield from waiter
-        return transport, protocol
+        return transport
 
     @tasks.coroutine
-    def create_datagram_endpoint(self, protocol_factory,
+    def create_datagram_endpoint(self,
                                  local_addr=None, remote_addr=None, *,
                                  family=0, proto=0, flags=0):
         """Create datagram connection."""
@@ -388,13 +387,12 @@ class BaseEventLoop(events.AbstractEventLoop):
         else:
             raise exceptions[0]
 
-        protocol = protocol_factory()
         transport = self._make_datagram_transport(
-            sock, protocol, r_addr, extra={'addr': l_addr})
-        return transport, protocol
+            sock, r_addr, extra={'addr': l_addr})
+        return transport
 
     @tasks.task
-    def start_serving(self, protocol_factory, host=None, port=None, *,
+    def start_serving(self, connection_handler, host=None, port=None, *,
                       family=socket.AF_UNSPEC, flags=socket.AI_PASSIVE,
                       sock=None, backlog=100, ssl=None, reuse_address=None):
         """XXX"""
@@ -452,26 +450,24 @@ class BaseEventLoop(events.AbstractEventLoop):
         for sock in sockets:
             sock.listen(backlog)
             sock.setblocking(False)
-            self._start_serving(protocol_factory, sock, ssl)
+            self._start_serving(connection_handler, sock, ssl)
         return sockets
 
     @tasks.coroutine
-    def connect_read_pipe(self, protocol_factory, pipe):
-        protocol = protocol_factory()
+    def connect_read_pipe(self, pipe):
         waiter = futures.Future()
-        transport = self._make_read_pipe_transport(pipe, protocol, waiter,
+        transport = self._make_read_pipe_transport(pipe, waiter,
                                                    extra={})
         yield from waiter
-        return transport, protocol
+        return transport
 
     @tasks.coroutine
-    def connect_write_pipe(self, protocol_factory, pipe):
-        protocol = protocol_factory()
+    def connect_write_pipe(self, pipe):
         waiter = futures.Future()
-        transport = self._make_write_pipe_transport(pipe, protocol, waiter,
+        transport = self._make_write_pipe_transport(pipe, waiter,
                                                     extra={})
         yield from waiter
-        return transport, protocol
+        return transport
 
     def _add_callback(self, handle):
         """Add a Handle to ready or scheduled."""

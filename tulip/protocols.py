@@ -13,14 +13,6 @@ class BaseProtocol:
     write-only transport like write pipe
     """
 
-    def connection_made(self, transport):
-        """Called when a connection is made.
-
-        The argument is the transport representing the pipe connection.
-        To receive data, wait for data_received() calls.
-        When the connection is closed, connection_lost() is called.
-        """
-
     def connection_lost(self, exc):
         """Called when the connection is lost or closed.
 
@@ -37,18 +29,18 @@ class Protocol(BaseProtocol):
     this class but don't need to.  The implementations here do
     nothing (they don't raise exceptions).
 
-    When the user wants to requests a transport, they pass a protocol
-    factory to a utility function (e.g., EventLoop.create_connection()).
+    After a connection is made (e.g., by
+    EventLoop.create_connection()), protocols can be registered with a
+    transport to receive its callbacks.
 
-    When the connection is made successfully, connection_made() is
-    called with a suitable transport object.  Then data_received()
-    will be called 0 or more times with data (bytes) received from the
-    transport; finally, connection_lost() will be called exactly once
-    with either an exception object or None as an argument.
+    Once registered, data_received() will be called 0 or more times
+    with data (bytes) received from the transport; finally,
+    connection_lost() will be called exactly once with either an
+    exception object or None as an argument.
 
     State machine of calls:
 
-      start -> CM [-> DR*] [-> ER?] -> CL -> end
+      start -> registered [-> DR*] [-> ER?] -> CL -> end
     """
 
     def data_received(self, data):

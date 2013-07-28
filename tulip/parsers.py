@@ -190,8 +190,10 @@ class StreamProtocol(StreamBuffer, protocols.Protocol):
 
     eof_received = StreamBuffer.feed_eof
 
-    def connection_made(self, transport):
+    def __init__(self, transport):
+        super().__init__()
         self.transport = transport
+        self.transport.register_protocol(self)
 
     def connection_lost(self, exc):
         self.transport = None

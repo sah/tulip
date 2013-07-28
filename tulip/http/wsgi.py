@@ -32,8 +32,8 @@ class WSGIServerHttpProtocol(server.ServerHttpProtocol):
 
     SCRIPT_NAME = os.environ.get('SCRIPT_NAME', '')
 
-    def __init__(self, app, readpayload=False, is_ssl=False, *args, **kw):
-        super().__init__(*args, **kw)
+    def __init__(self, transport, app, readpayload=False, is_ssl=False, *args, **kw):
+        super().__init__(transport, *args, **kw)
 
         self.wsgi = app
         self.is_ssl = is_ssl
