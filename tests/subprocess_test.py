@@ -15,16 +15,15 @@ from tulip import subprocess_transport
 
 class MyProto(protocols.Protocol):
 
-    def __init__(self):
+    def __init__(self, transport):
         self.state = 'INITIAL'
         self.nbytes = 0
         self.done = futures.Future()
-
-    def connection_made(self, transport):
         self.transport = transport
         assert self.state == 'INITIAL', self.state
         self.state = 'CONNECTED'
         transport.write_eof()
+        transport.register_protocol(self)
 
     def data_received(self, data):
         logging.info('received: %r', data)
@@ -52,8 +51,8 @@ class FutureTests(unittest.TestCase):
         self.loop.close()
 
     def test_unix_subprocess(self):
-        p = MyProto()
-        subprocess_transport.UnixSubprocessTransport(p, ['/bin/ls', '-lR'])
+        tr = subprocess_transport.UnixSubprocessTransport(['/bin/ls', '-lR'])
+        p = MyProto(tr)
         self.loop.run_until_complete(p.done)
 
 

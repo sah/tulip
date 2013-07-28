@@ -31,17 +31,17 @@ from tulip import test_utils
 class MyProto(protocols.Protocol):
     done = None
 
-    def __init__(self, create_future=False):
+    def __init__(self, transport, create_future=False, write_request=True):
         self.state = 'INITIAL'
         self.nbytes = 0
         if create_future:
             self.done = futures.Future()
-
-    def connection_made(self, transport):
         self.transport = transport
         assert self.state == 'INITIAL', self.state
         self.state = 'CONNECTED'
-        transport.write(b'GET / HTTP/1.0\r\nHost: example.com\r\n\r\n')
+        transport.register_protocol(self)
+        if write_request:
+            transport.write(b'GET / HTTP/1.0\r\nHost: example.com\r\n\r\n')
 
     def data_received(self, data):
         assert self.state == 'CONNECTED', self.state
@@ -61,16 +61,15 @@ class MyProto(protocols.Protocol):
 class MyDatagramProto(protocols.DatagramProtocol):
     done = None
 
-    def __init__(self, create_future=False):
+    def __init__(self, transport, create_future=False):
         self.state = 'INITIAL'
         self.nbytes = 0
         if create_future:
             self.done = futures.Future()
-
-    def connection_made(self, transport):
         self.transport = transport
         assert self.state == 'INITIAL', self.state
         self.state = 'INITIALIZED'
+        transport.register_protocol(self)
 
     def datagram_received(self, data, addr):
         assert self.state == 'INITIALIZED', self.state
@@ -89,17 +88,16 @@ class MyDatagramProto(protocols.DatagramProtocol):
 class MyReadPipeProto(protocols.Protocol):
     done = None
 
-    def __init__(self, create_future=False):
+    def __init__(self, transport, create_future=False):
         self.state = ['INITIAL']
         self.nbytes = 0
         self.transport = None
         if create_future:
             self.done = futures.Future()
-
-    def connection_made(self, transport):
         self.transport = transport
         assert self.state == ['INITIAL'], self.state
         self.state.append('CONNECTED')
+        transport.register_protocol(self)
 
     def data_received(self, data):
         assert self.state == ['INITIAL', 'CONNECTED'], self.state
@@ -120,16 +118,15 @@ class MyReadPipeProto(protocols.Protocol):
 class MyWritePipeProto(protocols.Protocol):
     done = None
 
-    def __init__(self, create_future=False):
+    def __init__(self, transport, create_future=False):
         self.state = 'INITIAL'
         self.transport = None
         if create_future:
             self.done = futures.Future()
-
-    def connection_made(self, transport):
         self.transport = transport
         assert self.state == 'INITIAL', self.state
         self.state = 'CONNECTED'
+        transport.register_protocol(self)
 
     def connection_lost(self, exc):
         assert self.state == 'CONNECTED', self.state
@@ -431,9 +428,9 @@ class EventLoopTestsMixin:
 
     def test_create_connection(self):
         with test_utils.run_test_server(self.loop) as httpd:
-            f = self.loop.create_connection(
-                lambda: MyProto(create_future=True), *httpd.address)
-            tr, pr = self.loop.run_until_complete(f)
+            f = self.loop.create_connection(*httpd.address)
+            tr = self.loop.run_until_complete(f)
+            pr = MyProto(tr, create_future=True)
             self.assertTrue(isinstance(tr, transports.Transport))
             self.assertTrue(isinstance(pr, protocols.Protocol))
             self.loop.run_until_complete(pr.done)
@@ -459,9 +456,9 @@ class EventLoopTestsMixin:
             else:
                 assert False, 'Can not create socket.'
 
-            f = self.loop.create_connection(
-                lambda: MyProto(create_future=True), sock=sock)
-            tr, pr = self.loop.run_until_complete(f)
+            f = self.loop.create_connection(sock=sock)
+            tr = self.loop.run_until_complete(f)
+            pr = MyProto(tr, create_future=True)
             self.assertTrue(isinstance(tr, transports.Transport))
             self.assertTrue(isinstance(pr, protocols.Protocol))
             self.loop.run_until_complete(pr.done)
@@ -472,9 +469,9 @@ class EventLoopTestsMixin:
     def test_create_ssl_connection(self):
         with test_utils.run_test_server(
                 self.loop, use_ssl=True) as httpd:
-            f = self.loop.create_connection(
-                lambda: MyProto(create_future=True), *httpd.address, ssl=True)
-            tr, pr = self.loop.run_until_complete(f)
+            f = self.loop.create_connection(*httpd.address, ssl=True)
+            tr = self.loop.run_until_complete(f)
+            pr = MyProto(tr, create_future=True)
             self.assertTrue(isinstance(tr, transports.Transport))
             self.assertTrue(isinstance(pr, protocols.Protocol))
             self.assertTrue('ssl' in tr.__class__.__name__.lower())
@@ -488,9 +485,9 @@ class EventLoopTestsMixin:
         with test_utils.run_test_server(self.loop) as httpd:
             port = find_unused_port()
             f = self.loop.create_connection(
-                lambda: MyProto(create_future=True),
                 *httpd.address, local_addr=(httpd.address[0], port))
-            tr, pr = self.loop.run_until_complete(f)
+            tr = self.loop.run_until_complete(f)
+            pr = MyProto(tr, create_future=True)
             expected = pr.transport.get_extra_info('socket').getsockname()[1]
             self.assertEqual(port, expected)
             tr.close()
@@ -498,7 +495,6 @@ class EventLoopTestsMixin:
     def test_create_connection_local_addr_in_use(self):
         with test_utils.run_test_server(self.loop) as httpd:
             f = self.loop.create_connection(
-                lambda: MyProto(create_future=True),
                 *httpd.address, local_addr=httpd.address)
             with self.assertRaises(socket.error) as cm:
                 self.loop.run_until_complete(f)
@@ -508,12 +504,11 @@ class EventLoopTestsMixin:
     def test_start_serving(self):
         proto = None
 
-        def factory():
+        def connection_handler(transport):
             nonlocal proto
-            proto = MyProto()
-            return proto
+            proto = MyProto(transport)
 
-        f = self.loop.start_serving(factory, '0.0.0.0', 0)
+        f = self.loop.start_serving(connection_handler, '0.0.0.0', 0)
         socks = self.loop.run_until_complete(f)
         self.assertEqual(len(socks), 1)
         sock = socks[0]
@@ -524,7 +519,7 @@ class EventLoopTestsMixin:
         client.send(b'xxx')
         test_utils.run_briefly(self.loop)
         self.assertIsInstance(proto, MyProto)
-        self.assertEqual('INITIAL', proto.state)
+        self.assertEqual('CONNECTED', proto.state)
         test_utils.run_briefly(self.loop)
         self.assertEqual('CONNECTED', proto.state)
         test_utils.run_briefly(self.loop)  # windows iocp
@@ -554,16 +549,9 @@ class EventLoopTestsMixin:
     def test_start_serving_ssl(self):
         proto = None
 
-        class ClientMyProto(MyProto):
-            def connection_made(self, transport):
-                self.transport = transport
-                assert self.state == 'INITIAL', self.state
-                self.state = 'CONNECTED'
-
-        def factory():
+        def connection_handler(transport):
             nonlocal proto
-            proto = MyProto(create_future=True)
-            return proto
+            proto = MyProto(transport, create_future=True)
 
         here = os.path.dirname(__file__)
         sslcontext = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
@@ -572,18 +560,20 @@ class EventLoopTestsMixin:
             keyfile=os.path.join(here, 'sample.key'))
 
         f = self.loop.start_serving(
-            factory, '127.0.0.1', 0, ssl=sslcontext)
+            connection_handler, '127.0.0.1', 0, ssl=sslcontext)
 
         sock = self.loop.run_until_complete(f)[0]
         host, port = sock.getsockname()
         self.assertEqual(host, '127.0.0.1')
 
-        f_c = self.loop.create_connection(ClientMyProto, host, port, ssl=True)
-        client, pr = self.loop.run_until_complete(f_c)
+        f_c = self.loop.create_connection(host, port, ssl=True)
+        client = self.loop.run_until_complete(f_c)
+        cmpr = MyProto(client, write_request=False)
 
         client.write(b'xxx')
         test_utils.run_briefly(self.loop)
         self.assertIsInstance(proto, MyProto)
+        test_utils.run_briefly(self.loop)
         test_utils.run_briefly(self.loop)
         self.assertEqual('CONNECTED', proto.state)
         self.assertEqual(3, proto.nbytes)
@@ -610,16 +600,14 @@ class EventLoopTestsMixin:
     def test_start_serving_sock(self):
         proto = futures.Future()
 
-        class TestMyProto(MyProto):
-            def connection_made(self, transport):
-                super().connection_made(transport)
-                proto.set_result(self)
+        def connection_handler(transport):
+            proto.set_result(MyProto(transport))
 
         sock_ob = socket.socket(type=socket.SOCK_STREAM)
         sock_ob.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock_ob.bind(('0.0.0.0', 0))
 
-        f = self.loop.start_serving(TestMyProto, sock=sock_ob)
+        f = self.loop.start_serving(connection_handler, sock=sock_ob)
         sock = self.loop.run_until_complete(f)[0]
         self.assertIs(sock, sock_ob)
 
@@ -637,11 +625,14 @@ class EventLoopTestsMixin:
         sock_ob.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock_ob.bind(('0.0.0.0', 0))
 
-        f = self.loop.start_serving(MyProto, sock=sock_ob)
+        def connection_handler(transport):
+            pass
+
+        f = self.loop.start_serving(connection_handler, sock=sock_ob)
         sock = self.loop.run_until_complete(f)[0]
         host, port = sock.getsockname()
 
-        f = self.loop.start_serving(MyProto, host=host, port=port)
+        f = self.loop.start_serving(connection_handler, host=host, port=port)
         with self.assertRaises(socket.error) as cm:
             self.loop.run_until_complete(f)
         self.assertEqual(cm.exception.errno, errno.EADDRINUSE)
@@ -652,13 +643,11 @@ class EventLoopTestsMixin:
     def test_start_serving_dual_stack(self):
         f_proto = futures.Future()
 
-        class TestMyProto(MyProto):
-            def connection_made(self, transport):
-                super().connection_made(transport)
-                f_proto.set_result(self)
+        def connection_handler(transport):
+            f_proto.set_result(MyProto(transport))
 
         port = find_unused_port()
-        f = self.loop.start_serving(TestMyProto, host=None, port=port)
+        f = self.loop.start_serving(connection_handler, host=None, port=port)
         socks = self.loop.run_until_complete(f)
         client = socket.socket()
         client.connect(('127.0.0.1', port))
@@ -679,7 +668,10 @@ class EventLoopTestsMixin:
             self.loop.stop_serving(s)
 
     def test_stop_serving(self):
-        f = self.loop.start_serving(MyProto, '0.0.0.0', 0)
+        def connection_handler(transport):
+            pass
+
+        f = self.loop.start_serving(connection_handler, '0.0.0.0', 0)
         socks = self.loop.run_until_complete(f)
         sock = socks[0]
         host, port = sock.getsockname()
@@ -698,25 +690,26 @@ class EventLoopTestsMixin:
 
     def test_create_datagram_endpoint(self):
         class TestMyDatagramProto(MyDatagramProto):
-            def __init__(self):
-                super().__init__(create_future=True)
+            def __init__(self, transport):
+                super().__init__(transport, create_future=True)
 
             def datagram_received(self, data, addr):
                 super().datagram_received(data, addr)
                 self.transport.sendto(b'resp:'+data, addr)
 
-        coro = self.loop.create_datagram_endpoint(
-            TestMyDatagramProto, local_addr=('127.0.0.1', 0))
-        s_transport, server = self.loop.run_until_complete(coro)
+        coro = self.loop.create_datagram_endpoint(local_addr=('127.0.0.1', 0))
+        s_transport = self.loop.run_until_complete(coro)
+        server = TestMyDatagramProto(s_transport)
         host, port = s_transport.get_extra_info('addr')
 
         coro = self.loop.create_datagram_endpoint(
-            lambda: MyDatagramProto(create_future=True),
             remote_addr=(host, port))
-        transport, client = self.loop.run_until_complete(coro)
+        transport = self.loop.run_until_complete(coro)
+        client = MyDatagramProto(transport, create_future=True)
 
         self.assertEqual('INITIALIZED', client.state)
         transport.sendto(b'xxx')
+        test_utils.run_briefly(self.loop)
         test_utils.run_briefly(self.loop)
         self.assertEqual(3, server.nbytes)
         test_utils.run_briefly(self.loop)
@@ -751,18 +744,14 @@ class EventLoopTestsMixin:
     def test_read_pipe(self):
         proto = None
 
-        def factory():
-            nonlocal proto
-            proto = MyReadPipeProto(create_future=True)
-            return proto
-
         rpipe, wpipe = os.pipe()
         pipeobj = io.open(rpipe, 'rb', 1024)
 
         @tasks.task
         def connect():
-            t, p = yield from self.loop.connect_read_pipe(factory, pipeobj)
-            self.assertIs(p, proto)
+            nonlocal proto
+            t = yield from self.loop.connect_read_pipe(pipeobj)
+            proto = MyReadPipeProto(t, create_future=True)
             self.assertIs(t, proto.transport)
             self.assertEqual(['INITIAL', 'CONNECTED'], proto.state)
             self.assertEqual(0, proto.nbytes)
@@ -791,22 +780,17 @@ class EventLoopTestsMixin:
         proto = None
         transport = None
 
-        def factory():
-            nonlocal proto
-            proto = MyWritePipeProto(create_future=True)
-            return proto
-
         rpipe, wpipe = os.pipe()
         pipeobj = io.open(wpipe, 'wb', 1024)
 
         @tasks.task
         def connect():
             nonlocal transport
-            t, p = yield from self.loop.connect_write_pipe(factory, pipeobj)
-            self.assertIs(p, proto)
-            self.assertIs(t, proto.transport)
+            nonlocal proto
+            transport = yield from self.loop.connect_write_pipe(pipeobj)
+            proto = MyWritePipeProto(transport, create_future=True)
+            self.assertIs(transport, proto.transport)
             self.assertEqual('CONNECTED', proto.state)
-            transport = t
 
         self.loop.run_until_complete(connect())
 
@@ -1105,10 +1089,10 @@ class AbstractEventLoopTests(unittest.TestCase):
         self.assertRaises(
             NotImplementedError, loop.remove_signal_handler, 1)
         self.assertRaises(
-            NotImplementedError, loop.connect_read_pipe, f,
+            NotImplementedError, loop.connect_read_pipe,
             unittest.mock.sentinel.pipe)
         self.assertRaises(
-            NotImplementedError, loop.connect_write_pipe, f,
+            NotImplementedError, loop.connect_write_pipe,
             unittest.mock.sentinel.pipe)
 
 
@@ -1117,13 +1101,11 @@ class ProtocolsAbsTests(unittest.TestCase):
     def test_empty(self):
         f = unittest.mock.Mock()
         p = protocols.Protocol()
-        self.assertIsNone(p.connection_made(f))
         self.assertIsNone(p.connection_lost(f))
         self.assertIsNone(p.data_received(f))
         self.assertIsNone(p.eof_received())
 
         dp = protocols.DatagramProtocol()
-        self.assertIsNone(dp.connection_made(f))
         self.assertIsNone(dp.connection_lost(f))
         self.assertIsNone(dp.connection_refused(f))
         self.assertIsNone(dp.datagram_received(f, f))

@@ -78,7 +78,7 @@ class HttpSessionTests(unittest.TestCase):
         self.assertTrue(tr.close.called)
 
     def test_call_new_conn_exc(self):
-        tr, proto = unittest.mock.Mock(), unittest.mock.Mock()
+        tr = unittest.mock.Mock()
 
         class Req:
             host = 'host'
@@ -91,7 +91,7 @@ class HttpSessionTests(unittest.TestCase):
         class Loop:
             @tulip.coroutine
             def create_connection(self, *args, **kw):
-                return tr, proto
+                return tr
 
         session = Session()
         self.assertRaises(
@@ -102,7 +102,7 @@ class HttpSessionTests(unittest.TestCase):
 
     def test_call_existing_conn_exc(self):
         existing = unittest.mock.Mock()
-        tr, proto = unittest.mock.Mock(), unittest.mock.Mock()
+        tr = unittest.mock.Mock()
 
         class Req:
             host = 'host'
@@ -124,7 +124,7 @@ class HttpSessionTests(unittest.TestCase):
         class Loop:
             @tulip.coroutine
             def create_connection(self, *args, **kw):
-                return tr, proto
+                return tr
 
         session = Session()
         key = ('host', 80, False)

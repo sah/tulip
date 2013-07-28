@@ -29,7 +29,7 @@ class BaseEventLoopTests(unittest.TestCase):
             self.loop._make_socket_transport, m, m)
         self.assertRaises(
             NotImplementedError,
-            self.loop._make_ssl_transport, m, m, m, m)
+            self.loop._make_ssl_transport, m, m, m)
         self.assertRaises(
             NotImplementedError,
             self.loop._make_datagram_transport, m, m)
@@ -254,16 +254,15 @@ class BaseEventLoopTests(unittest.TestCase):
 class MyProto(protocols.Protocol):
     done = None
 
-    def __init__(self, create_future=False):
+    def __init__(self, transport, create_future=False):
         self.state = 'INITIAL'
         self.nbytes = 0
         if create_future:
             self.done = futures.Future()
-
-    def connection_made(self, transport):
         self.transport = transport
         assert self.state == 'INITIAL', self.state
         self.state = 'CONNECTED'
+        transport.register_protocol(self)
         transport.write(b'GET / HTTP/1.0\r\nHost: example.com\r\n\r\n')
 
     def data_received(self, data):
@@ -290,8 +289,6 @@ class MyDatagramProto(protocols.DatagramProtocol):
         self.nbytes = 0
         if create_future:
             self.done = futures.Future()
-
-    def connection_made(self, transport):
         self.transport = transport
         assert self.state == 'INITIAL', self.state
         self.state = 'INITIALIZED'
@@ -323,7 +320,8 @@ class BaseEventLoopWithSelectorTests(unittest.TestCase):
     def test_create_connection_mutiple_errors(self, m_socket):
 
         class MyProto(protocols.Protocol):
-            pass
+            def __init__(self, transport):
+                pass
 
         @tasks.coroutine
         def getaddrinfo(*args, **kw):
@@ -345,18 +343,17 @@ class BaseEventLoopWithSelectorTests(unittest.TestCase):
         self.loop.getaddrinfo = getaddrinfo
 
         task = tasks.Task(
-            self.loop.create_connection(MyProto, 'example.com', 80))
+            self.loop.create_connection('example.com', 80))
         yield from tasks.wait(task)
         exc = task.exception()
         self.assertEqual("Multiple exceptions: err1, err2", str(exc))
 
     def test_create_connection_host_port_sock(self):
-        coro = self.loop.create_connection(
-            MyProto, 'example.com', 80, sock=object())
+        coro = self.loop.create_connection('example.com', 80, sock=object())
         self.assertRaises(ValueError, self.loop.run_until_complete, coro)
 
     def test_create_connection_no_host_port_sock(self):
-        coro = self.loop.create_connection(MyProto)
+        coro = self.loop.create_connection()
         self.assertRaises(ValueError, self.loop.run_until_complete, coro)
 
     def test_create_connection_no_getaddrinfo(self):
@@ -364,7 +361,7 @@ class BaseEventLoopWithSelectorTests(unittest.TestCase):
         def getaddrinfo(*args, **kw):
             yield from []
         self.loop.getaddrinfo = getaddrinfo
-        coro = self.loop.create_connection(MyProto, 'example.com', 80)
+        coro = self.loop.create_connection('example.com', 80)
         self.assertRaises(
             socket.error, self.loop.run_until_complete, coro)
 
@@ -377,7 +374,7 @@ class BaseEventLoopWithSelectorTests(unittest.TestCase):
         self.loop.sock_connect = unittest.mock.Mock()
         self.loop.sock_connect.side_effect = socket.error
 
-        coro = self.loop.create_connection(MyProto, 'example.com', 80)
+        coro = self.loop.create_connection('example.com', 80)
         self.assertRaises(
             socket.error, self.loop.run_until_complete, coro)
 
@@ -391,7 +388,7 @@ class BaseEventLoopWithSelectorTests(unittest.TestCase):
         self.loop.sock_connect.side_effect = socket.error
 
         coro = self.loop.create_connection(
-            MyProto, 'example.com', 80, family=socket.AF_INET)
+            'example.com', 80, family=socket.AF_INET)
         with self.assertRaises(socket.error):
             self.loop.run_until_complete(coro)
 
@@ -416,7 +413,7 @@ class BaseEventLoopWithSelectorTests(unittest.TestCase):
         self.loop.sock_connect.side_effect = socket.error('Err2')
 
         coro = self.loop.create_connection(
-            MyProto, 'example.com', 80, family=socket.AF_INET,
+            'example.com', 80, family=socket.AF_INET,
             local_addr=(None, 8080))
         with self.assertRaises(socket.error) as cm:
             self.loop.run_until_complete(coro)
@@ -435,7 +432,7 @@ class BaseEventLoopWithSelectorTests(unittest.TestCase):
         self.loop.getaddrinfo = getaddrinfo
 
         coro = self.loop.create_connection(
-            MyProto, 'example.com', 80, family=socket.AF_INET,
+            'example.com', 80, family=socket.AF_INET,
             local_addr=(None, 8080))
         self.assertRaises(
             socket.error, self.loop.run_until_complete, coro)
@@ -493,17 +490,17 @@ class BaseEventLoopWithSelectorTests(unittest.TestCase):
         m_socket.getaddrinfo.return_value = []
 
         coro = self.loop.create_datagram_endpoint(
-            MyDatagramProto, local_addr=('localhost', 0))
+            local_addr=('localhost', 0))
         self.assertRaises(
             socket.error, self.loop.run_until_complete, coro)
 
     def test_create_datagram_endpoint_addr_error(self):
         coro = self.loop.create_datagram_endpoint(
-            MyDatagramProto, local_addr='localhost')
+            local_addr='localhost')
         self.assertRaises(
             AssertionError, self.loop.run_until_complete, coro)
         coro = self.loop.create_datagram_endpoint(
-            MyDatagramProto, local_addr=('localhost', 1, 2, 3))
+            local_addr=('localhost', 1, 2, 3))
         self.assertRaises(
             AssertionError, self.loop.run_until_complete, coro)
 
@@ -512,7 +509,7 @@ class BaseEventLoopWithSelectorTests(unittest.TestCase):
         self.loop.sock_connect.side_effect = socket.error
 
         coro = self.loop.create_datagram_endpoint(
-            protocols.DatagramProtocol, remote_addr=('127.0.0.1', 0))
+            remote_addr=('127.0.0.1', 0))
         self.assertRaises(
             socket.error, self.loop.run_until_complete, coro)
 
@@ -523,18 +520,17 @@ class BaseEventLoopWithSelectorTests(unittest.TestCase):
         m_socket.socket.side_effect = socket.error
 
         coro = self.loop.create_datagram_endpoint(
-            protocols.DatagramProtocol, family=socket.AF_INET)
+            family=socket.AF_INET)
         self.assertRaises(
             socket.error, self.loop.run_until_complete, coro)
 
         coro = self.loop.create_datagram_endpoint(
-            protocols.DatagramProtocol, local_addr=('127.0.0.1', 0))
+            local_addr=('127.0.0.1', 0))
         self.assertRaises(
             socket.error, self.loop.run_until_complete, coro)
 
     def test_create_datagram_endpoint_no_matching_family(self):
         coro = self.loop.create_datagram_endpoint(
-            protocols.DatagramProtocol,
             remote_addr=('127.0.0.1', 0), local_addr=('::1', 0))
         self.assertRaises(
             ValueError, self.loop.run_until_complete, coro)
@@ -545,15 +541,14 @@ class BaseEventLoopWithSelectorTests(unittest.TestCase):
         m_socket.socket.return_value.setblocking.side_effect = socket.error
 
         coro = self.loop.create_datagram_endpoint(
-            protocols.DatagramProtocol, family=socket.AF_INET)
+            family=socket.AF_INET)
         self.assertRaises(
             socket.error, self.loop.run_until_complete, coro)
         self.assertTrue(
             m_socket.socket.return_value.close.called)
 
     def test_create_datagram_endpoint_noaddr_nofamily(self):
-        coro = self.loop.create_datagram_endpoint(
-            protocols.DatagramProtocol)
+        coro = self.loop.create_datagram_endpoint()
         self.assertRaises(ValueError, self.loop.run_until_complete, coro)
 
     @unittest.mock.patch('tulip.base_events.socket')
@@ -568,7 +563,6 @@ class BaseEventLoopWithSelectorTests(unittest.TestCase):
         m_sock.bind.side_effect = Err
 
         fut = self.loop.create_datagram_endpoint(
-            MyDatagramProto,
             local_addr=('127.0.0.1', 0), family=socket.AF_INET)
         self.assertRaises(Err, self.loop.run_until_complete, fut)
         self.assertTrue(m_sock.close.called)

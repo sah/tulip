@@ -32,14 +32,13 @@ class HttpWsgiServerProtocolTests(unittest.TestCase):
         self.loop.close()
 
     def test_ctor(self):
-        srv = wsgi.WSGIServerHttpProtocol(self.wsgi)
+        srv = wsgi.WSGIServerHttpProtocol(self.transport, self.wsgi)
         self.assertIs(srv.wsgi, self.wsgi)
         self.assertFalse(srv.readpayload)
 
     def _make_one(self, **kw):
-        srv = wsgi.WSGIServerHttpProtocol(self.wsgi, **kw)
+        srv = wsgi.WSGIServerHttpProtocol(self.transport, self.wsgi, **kw)
         srv.stream = self.stream
-        srv.transport = self.transport
         return srv.create_wsgi_environ(self.message, self.payload)
 
     def test_environ(self):
@@ -119,17 +118,15 @@ class HttpWsgiServerProtocolTests(unittest.TestCase):
         self.assertEqual(environ['REMOTE_PORT'], '80')
 
     def test_wsgi_response(self):
-        srv = wsgi.WSGIServerHttpProtocol(self.wsgi)
+        srv = wsgi.WSGIServerHttpProtocol(self.transport, self.wsgi)
         srv.stream = self.stream
-        srv.transport = self.transport
 
         resp = srv.create_wsgi_response(self.message)
         self.assertIsInstance(resp, wsgi.WsgiResponse)
 
     def test_wsgi_response_start_response(self):
-        srv = wsgi.WSGIServerHttpProtocol(self.wsgi)
+        srv = wsgi.WSGIServerHttpProtocol(self.transport, self.wsgi)
         srv.stream = self.stream
-        srv.transport = self.transport
 
         resp = srv.create_wsgi_response(self.message)
         resp.start_response(
@@ -138,9 +135,8 @@ class HttpWsgiServerProtocolTests(unittest.TestCase):
         self.assertIsInstance(resp.response, protocol.Response)
 
     def test_wsgi_response_start_response_exc(self):
-        srv = wsgi.WSGIServerHttpProtocol(self.wsgi)
+        srv = wsgi.WSGIServerHttpProtocol(self.transport, self.wsgi)
         srv.stream = self.stream
-        srv.transport = self.transport
 
         resp = srv.create_wsgi_response(self.message)
         resp.start_response(
@@ -149,9 +145,8 @@ class HttpWsgiServerProtocolTests(unittest.TestCase):
         self.assertIsInstance(resp.response, protocol.Response)
 
     def test_wsgi_response_start_response_exc_status(self):
-        srv = wsgi.WSGIServerHttpProtocol(self.wsgi)
+        srv = wsgi.WSGIServerHttpProtocol(self.transport, self.wsgi)
         srv.stream = self.stream
-        srv.transport = self.transport
 
         resp = srv.create_wsgi_response(self.message)
         resp.start_response('200 OK', [('CONTENT-TYPE', 'text/plain')])
@@ -184,9 +179,11 @@ class HttpWsgiServerProtocolTests(unittest.TestCase):
             fut.set_result([f1])
             return fut
 
-        srv = wsgi.WSGIServerHttpProtocol(wsgi_app)
+        # prevent the server from actually starting up
+        wsgi.WSGIServerHttpProtocol.start = unittest.mock.Mock()
+
+        srv = wsgi.WSGIServerHttpProtocol(self.transport, wsgi_app)
         srv.stream = self.stream
-        srv.transport = self.transport
 
         self.loop.run_until_complete(
             srv.handle_request(self.message, self.payload))
@@ -209,9 +206,12 @@ class HttpWsgiServerProtocolTests(unittest.TestCase):
         self.message = protocol.RawRequestMessage(
             'GET', '/path', (1, 1), self.headers, True, 'deflate')
 
-        srv = wsgi.WSGIServerHttpProtocol(wsgi_app, readpayload=True)
+        # prevent the server from actually starting up
+        wsgi.WSGIServerHttpProtocol.start = unittest.mock.Mock()
+
+        srv = wsgi.WSGIServerHttpProtocol(self.transport, wsgi_app,
+                                          readpayload=True)
         srv.stream = self.stream
-        srv.transport = self.transport
 
         self.loop.run_until_complete(
             srv.handle_request(self.message, self.payload))
@@ -228,9 +228,11 @@ class HttpWsgiServerProtocolTests(unittest.TestCase):
             start('200 OK', [('Content-Type', 'text/plain')])
             return io.BytesIO(b'data')
 
-        srv = wsgi.WSGIServerHttpProtocol(wsgi_app)
+        # prevent the server from actually starting up
+        wsgi.WSGIServerHttpProtocol.start = unittest.mock.Mock()
+
+        srv = wsgi.WSGIServerHttpProtocol(self.transport, wsgi_app)
         srv.stream = self.stream
-        srv.transport = self.transport
 
         self.loop.run_until_complete(
             srv.handle_request(self.message, self.payload))
@@ -253,9 +255,12 @@ class HttpWsgiServerProtocolTests(unittest.TestCase):
         self.message = protocol.RawRequestMessage(
             'GET', '/path', (1, 1), self.headers, False, 'deflate')
 
-        srv = wsgi.WSGIServerHttpProtocol(wsgi_app, readpayload=True)
+        # prevent the server from actually starting up
+        wsgi.WSGIServerHttpProtocol.start = unittest.mock.Mock()
+
+        srv = wsgi.WSGIServerHttpProtocol(self.transport, wsgi_app,
+                                          readpayload=True)
         srv.stream = self.stream
-        srv.transport = self.transport
 
         self.loop.run_until_complete(
             srv.handle_request(self.message, self.payload))
@@ -272,9 +277,9 @@ class HttpWsgiServerProtocolTests(unittest.TestCase):
             start('200 OK', [('Content-Type', 'text/plain')])
             return [env['wsgi.input'].read()]
 
-        srv = wsgi.WSGIServerHttpProtocol(wsgi_app, readpayload=True)
+        srv = wsgi.WSGIServerHttpProtocol(self.transport, wsgi_app,
+                                          readpayload=True)
         srv.stream = self.stream
-        srv.transport = self.transport
 
         self.loop.run_until_complete(
             srv.handle_request(self.message, self.payload))

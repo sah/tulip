@@ -403,25 +403,16 @@ class DataBufferTests(unittest.TestCase):
 
 class StreamProtocolTests(unittest.TestCase):
 
-    def test_connection_made(self):
-        tr = unittest.mock.Mock()
-
-        proto = parsers.StreamProtocol()
-        self.assertIsNone(proto.transport)
-
-        proto.connection_made(tr)
-        self.assertIs(proto.transport, tr)
-
     def test_connection_lost(self):
-        proto = parsers.StreamProtocol()
-        proto.connection_made(unittest.mock.Mock())
+        tr = unittest.mock.Mock()
+        proto = parsers.StreamProtocol(tr)
         proto.connection_lost(None)
         self.assertIsNone(proto.transport)
         self.assertTrue(proto._eof)
 
     def test_connection_lost_exc(self):
-        proto = parsers.StreamProtocol()
-        proto.connection_made(unittest.mock.Mock())
+        tr = unittest.mock.Mock()
+        proto = parsers.StreamProtocol(tr)
 
         exc = ValueError()
         proto.connection_lost(exc)

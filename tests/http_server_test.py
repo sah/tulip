@@ -26,8 +26,7 @@ class HttpServerProtocolTests(unittest.TestCase):
     def test_handle_request(self):
         transport = unittest.mock.Mock()
 
-        srv = server.ServerHttpProtocol()
-        srv.connection_made(transport)
+        srv = server.ServerHttpProtocol(transport)
 
         rline = unittest.mock.Mock()
         rline.version = (1, 1)
@@ -37,16 +36,12 @@ class HttpServerProtocolTests(unittest.TestCase):
         content = b''.join([c[1][0] for c in list(transport.write.mock_calls)])
         self.assertTrue(content.startswith(b'HTTP/1.1 404 Not Found\r\n'))
 
-    def test_connection_made(self):
-        srv = server.ServerHttpProtocol()
-        self.assertIsNone(srv._request_handler)
-
-        srv.connection_made(unittest.mock.Mock())
+    def test_constructs_with_connection(self):
+        srv = server.ServerHttpProtocol(unittest.mock.Mock())
         self.assertIsNotNone(srv._request_handler)
 
     def test_data_received(self):
-        srv = server.ServerHttpProtocol()
-        srv.connection_made(unittest.mock.Mock())
+        srv = server.ServerHttpProtocol(unittest.mock.Mock())
 
         srv.data_received(b'123')
         self.assertEqual(b'123', bytes(srv.stream._buffer))
@@ -55,14 +50,12 @@ class HttpServerProtocolTests(unittest.TestCase):
         self.assertEqual(b'123456', bytes(srv.stream._buffer))
 
     def test_eof_received(self):
-        srv = server.ServerHttpProtocol()
-        srv.connection_made(unittest.mock.Mock())
+        srv = server.ServerHttpProtocol(unittest.mock.Mock())
         srv.eof_received()
         self.assertTrue(srv.stream._eof)
 
     def test_connection_lost(self):
-        srv = server.ServerHttpProtocol()
-        srv.connection_made(unittest.mock.Mock())
+        srv = server.ServerHttpProtocol(unittest.mock.Mock())
         srv.data_received(b'123')
 
         keep_alive_handle = srv._keep_alive_handle = unittest.mock.Mock()
@@ -81,7 +74,7 @@ class HttpServerProtocolTests(unittest.TestCase):
         self.assertIsNone(srv._keep_alive_handle)
 
     def test_srv_keep_alive(self):
-        srv = server.ServerHttpProtocol()
+        srv = server.ServerHttpProtocol(unittest.mock.Mock())
         self.assertFalse(srv._keep_alive)
 
         srv.keep_alive(True)
@@ -92,8 +85,7 @@ class HttpServerProtocolTests(unittest.TestCase):
 
     def test_handle_error(self):
         transport = unittest.mock.Mock()
-        srv = server.ServerHttpProtocol()
-        srv.connection_made(transport)
+        srv = server.ServerHttpProtocol(transport)
         srv.keep_alive(True)
 
         srv.handle_error(404, headers=(('X-Server', 'Tulip'),))
@@ -106,8 +98,7 @@ class HttpServerProtocolTests(unittest.TestCase):
     def test_handle_error_traceback_exc(self, m_trace):
         transport = unittest.mock.Mock()
         log = unittest.mock.Mock()
-        srv = server.ServerHttpProtocol(debug=True, log=log)
-        srv.connection_made(transport)
+        srv = server.ServerHttpProtocol(transport, debug=True, log=log)
 
         m_trace.format_exc.side_effect = ValueError
 
@@ -119,9 +110,8 @@ class HttpServerProtocolTests(unittest.TestCase):
 
     def test_handle_error_debug(self):
         transport = unittest.mock.Mock()
-        srv = server.ServerHttpProtocol()
+        srv = server.ServerHttpProtocol(transport)
         srv.debug = True
-        srv.connection_made(transport)
 
         try:
             raise ValueError()
@@ -137,16 +127,14 @@ class HttpServerProtocolTests(unittest.TestCase):
         log = unittest.mock.Mock()
         transport = unittest.mock.Mock()
 
-        srv = server.ServerHttpProtocol(log=log)
-        srv.connection_made(transport)
+        srv = server.ServerHttpProtocol(transport, log=log)
 
         srv.handle_error(500)
         self.assertTrue(log.exception.called)
 
     def test_handle(self):
         transport = unittest.mock.Mock()
-        srv = server.ServerHttpProtocol()
-        srv.connection_made(transport)
+        srv = server.ServerHttpProtocol(transport)
 
         handle = srv.handle_request = unittest.mock.Mock()
 
@@ -160,7 +148,7 @@ class HttpServerProtocolTests(unittest.TestCase):
 
     def test_handle_coro(self):
         transport = unittest.mock.Mock()
-        srv = server.ServerHttpProtocol()
+        srv = server.ServerHttpProtocol(transport)
 
         called = False
 
@@ -171,7 +159,6 @@ class HttpServerProtocolTests(unittest.TestCase):
             srv.eof_received()
 
         srv.handle_request = coro
-        srv.connection_made(transport)
 
         srv.stream.feed_data(
             b'GET / HTTP/1.0\r\n'
@@ -183,8 +170,7 @@ class HttpServerProtocolTests(unittest.TestCase):
         log = unittest.mock.Mock()
         transport = unittest.mock.Mock()
 
-        srv = server.ServerHttpProtocol(log=log, debug=True)
-        srv.connection_made(transport)
+        srv = server.ServerHttpProtocol(transport, log=log, debug=True)
 
         srv.handle_request = unittest.mock.Mock()
 
@@ -200,8 +186,7 @@ class HttpServerProtocolTests(unittest.TestCase):
         log = unittest.mock.Mock()
         transport = unittest.mock.Mock()
 
-        srv = server.ServerHttpProtocol(log=log, debug=True)
-        srv.connection_made(transport)
+        srv = server.ServerHttpProtocol(transport, log=log, debug=True)
 
         srv.handle_request = unittest.mock.Mock()
         run_briefly(self.loop)  # start request_handler task
@@ -217,8 +202,7 @@ class HttpServerProtocolTests(unittest.TestCase):
 
     def test_handle_400(self):
         transport = unittest.mock.Mock()
-        srv = server.ServerHttpProtocol()
-        srv.connection_made(transport)
+        srv = server.ServerHttpProtocol(transport)
         srv.handle_error = unittest.mock.Mock()
         srv.keep_alive(True)
         srv.stream.feed_data(b'GET / HT/asd\r\n\r\n')
@@ -230,8 +214,7 @@ class HttpServerProtocolTests(unittest.TestCase):
 
     def test_handle_500(self):
         transport = unittest.mock.Mock()
-        srv = server.ServerHttpProtocol()
-        srv.connection_made(transport)
+        srv = server.ServerHttpProtocol(transport)
 
         handle = srv.handle_request = unittest.mock.Mock()
         handle.side_effect = ValueError
@@ -247,17 +230,16 @@ class HttpServerProtocolTests(unittest.TestCase):
 
     def test_handle_error_no_handle_task(self):
         transport = unittest.mock.Mock()
-        srv = server.ServerHttpProtocol()
+        srv = server.ServerHttpProtocol(transport)
         srv.keep_alive(True)
-        srv.connection_made(transport)
         srv.connection_lost(None)
 
         srv.handle_error(300)
         self.assertFalse(srv._keep_alive)
 
     def test_keep_alive(self):
-        srv = server.ServerHttpProtocol(keep_alive=0.1)
         transport = unittest.mock.Mock()
+        srv = server.ServerHttpProtocol(transport, keep_alive=0.1)
         closed = False
 
         def close():
@@ -267,8 +249,6 @@ class HttpServerProtocolTests(unittest.TestCase):
             self.loop.stop()
 
         transport.close = close
-
-        srv.connection_made(transport)
 
         handle = srv.handle_request = unittest.mock.Mock()
 
@@ -283,8 +263,7 @@ class HttpServerProtocolTests(unittest.TestCase):
 
     def test_keep_alive_close_existing(self):
         transport = unittest.mock.Mock()
-        srv = server.ServerHttpProtocol(keep_alive=15)
-        srv.connection_made(transport)
+        srv = server.ServerHttpProtocol(transport, keep_alive=15)
 
         self.assertIsNone(srv._keep_alive_handle)
         keep_alive_handle = srv._keep_alive_handle = unittest.mock.Mock()
