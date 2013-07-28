@@ -123,7 +123,8 @@ class ChildProcess:
         loop.add_signal_handler(signal.SIGINT, stop)
 
         f = loop.start_serving(
-            lambda: HttpServer(debug=True, keep_alive=75), sock=self.sock)
+            lambda tr: HttpServer(tr, debug=True, keep_alive=75),
+            sock=self.sock)
         x = loop.run_until_complete(f)[0]
         print('Starting srv worker process {} on {}'.format(
             os.getpid(), x.getsockname()))
@@ -137,10 +138,12 @@ class ChildProcess:
     @tulip.task
     def heartbeat(self):
         # setup pipes
-        read_transport, read_proto = yield from self.loop.connect_read_pipe(
-            tulip.StreamProtocol, os.fdopen(self.up_read, 'rb'))
-        write_transport, _ = yield from self.loop.connect_write_pipe(
-            tulip.StreamProtocol, os.fdopen(self.down_write, 'wb'))
+        read_transport = yield from self.loop.connect_read_pipe(
+            os.fdopen(self.up_read, 'rb'))
+        read_proto = tulip.StreamProtocol(read_transport)
+        write_transport = yield from self.loop.connect_write_pipe(
+            os.fdopen(self.down_write, 'wb'))
+        write_proto = tulip.StreamProtocol(write_transport)
 
         reader = read_proto.set_parser(websocket.WebSocketParser())
         writer = websocket.WebSocketWriter(write_transport)
@@ -226,13 +229,15 @@ class Worker:
     @tulip.task
     def connect(self, pid, up_write, down_read):
         # setup pipes
-        read_transport, proto = yield from self.loop.connect_read_pipe(
-            tulip.StreamProtocol, os.fdopen(down_read, 'rb'))
-        write_transport, _ = yield from self.loop.connect_write_pipe(
-            tulip.StreamProtocol, os.fdopen(up_write, 'wb'))
+        read_transport = yield from self.loop.connect_read_pipe(
+            os.fdopen(down_read, 'rb'))
+        read_proto = tulip.StreamProtocol(read_transport)
+        write_transport = yield from self.loop.connect_write_pipe(
+            os.fdopen(up_write, 'wb'))
+        write_proto = tulip.StreamProtocol(write_transport)
 
         # websocket protocol
-        reader = proto.set_parser(websocket.WebSocketParser())
+        reader = read_proto.set_parser(websocket.WebSocketParser())
         writer = websocket.WebSocketWriter(write_transport)
 
         # store info

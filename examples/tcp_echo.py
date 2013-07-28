@@ -12,17 +12,17 @@ class EchoServer(tulip.Protocol):
 
     TIMEOUT = 5.0
 
-    def timeout(self):
-        print('connection timeout, closing.')
-        self.transport.close()
-
-    def connection_made(self, transport):
-        print('connection made')
+    def __init__(self, transport):
         self.transport = transport
+        self.transport.register_protocol(self)
 
         # start 5 seconds timeout timer
         self.h_timeout = tulip.get_event_loop().call_later(
             self.TIMEOUT, self.timeout)
+
+    def timeout(self):
+        print('connection timeout, closing.')
+        self.transport.close()
 
     def data_received(self, data):
         print('data received: ', data.decode())
@@ -45,8 +45,9 @@ class EchoClient(tulip.Protocol):
 
     message = 'This is the message. It will be echoed.'
 
-    def connection_made(self, transport):
+    def __init__(self, transport):
         self.transport = transport
+        self.transport.register_protocol(self)
         self.transport.write(self.message.encode())
         print('data sent:', self.message)
 
@@ -64,15 +65,16 @@ class EchoClient(tulip.Protocol):
         tulip.get_event_loop().stop()
 
 
+@tulip.task
 def start_client(loop, host, port):
-    t = tulip.Task(loop.create_connection(EchoClient, host, port))
-    loop.run_until_complete(t)
+    transport = yield from loop.create_connection(host, port)
+    EchoClient(transport)
 
 
+@tulip.task
 def start_server(loop, host, port):
-    f = loop.start_serving(EchoServer, host, port)
-    x = loop.run_until_complete(f)[0]
-    print('serving on', x.getsockname())
+    x = yield from loop.start_serving(EchoServer, host, port)
+    print('serving on', x[0].getsockname())
 
 
 ARGS = argparse.ArgumentParser(description="TCP Echo example.")
@@ -106,8 +108,8 @@ if __name__ == '__main__':
             loop.add_signal_handler(signal.SIGINT, loop.stop)
 
         if args.server:
-            start_server(loop, args.host, args.port)
+            loop.run_until_complete(start_server(loop, args.host, args.port))
         else:
-            start_client(loop, args.host, args.port)
+            loop.run_until_complete(start_client(loop, args.host, args.port))
 
         loop.run_forever()

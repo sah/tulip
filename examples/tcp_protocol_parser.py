@@ -66,9 +66,10 @@ class MyProtocolWriter:
 
 class EchoServer(tulip.Protocol):
 
-    def connection_made(self, transport):
+    def __init__(self, transport):
         print('Connection made')
         self.transport = transport
+        self.transport.register_protocol(self)
         self.stream = tulip.StreamBuffer()
         self.dispatch()
 
@@ -104,8 +105,8 @@ class EchoServer(tulip.Protocol):
 
 @tulip.task
 def start_client(loop, host, port):
-    transport, stream = yield from loop.create_connection(
-        tulip.StreamProtocol, host, port)
+    transport = yield from loop.create_connection(host, port)
+    stream = tulip.StreamProtocol(transport)
     reader = stream.set_parser(my_protocol_parser())
     writer = MyProtocolWriter(transport)
     writer.ping()

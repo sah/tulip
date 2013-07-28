@@ -11,9 +11,10 @@ except ImportError:
 
 class MyServerUdpEchoProtocol:
 
-    def connection_made(self, transport):
+    def __init__(self, transport):
         print('start', transport)
         self.transport = transport
+        self.transport.register_protocol(self)
 
     def datagram_received(self, data, addr):
         print('Data received:', data, addr)
@@ -30,8 +31,9 @@ class MyClientUdpEchoProtocol:
 
     message = 'This is the message. It will be echoed.'
 
-    def connection_made(self, transport):
+    def __init__(self, transport):
         self.transport = transport
+        self.transport.register_protocol(self)
         print('sending "{}"'.format(self.message))
         self.transport.sendto(self.message.encode())
         print('waiting to receive')
@@ -49,16 +51,16 @@ class MyClientUdpEchoProtocol:
         loop.stop()
 
 
+@tulip.task
 def start_server(loop, addr):
-    t = tulip.Task(loop.create_datagram_endpoint(
-        MyServerUdpEchoProtocol, local_addr=addr))
-    loop.run_until_complete(t)
+    tr = yield from loop.create_datagram_endpoint(local_addr=addr)
+    MyServerUdpEchoProtocol(tr)
 
 
+@tulip.task
 def start_client(loop, addr):
-    t = tulip.Task(loop.create_datagram_endpoint(
-        MyClientUdpEchoProtocol, remote_addr=addr))
-    loop.run_until_complete(t)
+    tr = yield from loop.create_datagram_endpoint(remote_addr=addr)
+    MyClientUdpEchoProtocol(tr)
 
 
 ARGS = argparse.ArgumentParser(description="UDP Echo example.")
@@ -91,8 +93,8 @@ if __name__ == '__main__':
             loop.add_signal_handler(signal.SIGINT, loop.stop)
 
         if '--server' in sys.argv:
-            start_server(loop, (args.host, args.port))
+            loop.run_until_complete(start_server(loop, (args.host, args.port)))
         else:
-            start_client(loop, (args.host, args.port))
+            loop.run_until_complete(start_client(loop, (args.host, args.port)))
 
         loop.run_forever()

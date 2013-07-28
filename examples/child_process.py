@@ -29,8 +29,9 @@ else:
 
 def connect_write_pipe(file):
     loop = tulip.get_event_loop()
-    protocol = protocols.Protocol()
-    return loop._make_write_pipe_transport(file, protocol)
+    transport = loop._make_write_pipe_transport(file)
+    transport.register_protocol(protocols.Protocol())
+    return transport
 
 #
 # Wrap a readable pipe in a stream
@@ -39,12 +40,14 @@ def connect_write_pipe(file):
 def connect_read_pipe(file):
     loop = tulip.get_event_loop()
     stream_reader = streams.StreamReader()
-    protocol = _StreamReaderProtocol(stream_reader)
-    transport = loop._make_read_pipe_transport(file, protocol)
+    transport = loop._make_read_pipe_transport(file)
+    protocol = _StreamReaderProtocol(transport, stream_reader)
     return stream_reader
 
 class _StreamReaderProtocol(protocols.Protocol):
-    def __init__(self, stream_reader):
+    def __init__(self, transport, stream_reader):
+        self.transport = transport
+        self.transport.register_protocol(self)
         self.stream_reader = stream_reader
     def connection_lost(self, exc):
         self.stream_reader.set_exception(exc)
